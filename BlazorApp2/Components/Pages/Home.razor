@@ -1,0 +1,126 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.Authorization
+@inject BlazorApp2.Models.TodoContext _todoContext
+@inject AuthenticationStateProvider _authenticationStateProvider
+@inject BlazorApp2.Codes.EncryptionHandler _encryptHandler;
+
+
+@attribute [Authorize(Policy = "Auth")]
+<PageTitle>Home</PageTitle>
+<hr />
+<h3>User: @UserName</h3>
+<br />
+
+@if (CprFromDB == null)
+{
+    <div>Indtast dit cpr-nr: </div>
+    <InputText @bind-Value="CprNr" style="width:150px" />
+    <br />
+    <button class="btn-primary" @onclick="btnSubmitCpr_clicked" style="width:150px; height:45px; margin-top:4px;">Submit</button>
+}
+else
+{
+    <div>Dit cpr-nr: @CprFromDB</div>
+    <div style="margin-top:20px">Indtast todo:</div>
+    <InputText @bind-Value="ToDoItem" style="width:150px;" />
+    <br />
+    <button class="btn-primary" @onclick="btnSubmitTodoItem_clicked" style="width:150px; height:45px; margin-top:4px;">Submit</button>
+}
+
+<div style="margin-top:18px">
+    @if (TodoList != null && TodoList.Count > 0)
+    {
+        <div>Todo list:</div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>My to do items</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in TodoList)
+                {
+                    <tr>
+                        <td>@_encryptHandler.Decrypt(@item.Name)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+@code {
+    public string UserName { get; set; }
+    public string CprNr { get; set; }
+    public string CprFromDB { get; set; }
+    public string ToDoItem { get; set; } = "";
+    public List<BlazorApp2.Models.Todolist> TodoList { get; set; } = new List<BlazorApp2.Models.Todolist>();
+    public string Message { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        UserName = user.Identity.Name;
+        _encryptHandler.Encrypt("test");
+    }
+
+    private void btnSubmitCpr_clicked()
+    {
+        string cprHashed = Codes.HashingExamples.BCryptHashing(CprNr);
+
+        var matchedUser = _todoContext.Cprs.FirstOrDefault(x => x.User == UserName);
+        if (matchedUser == null)
+        {
+            var cpr = new BlazorApp2.Models.Cpr
+                {
+                    User = UserName,
+                    Cpr1 = cprHashed
+                };
+            _todoContext.Cprs.Add(cpr);
+            _todoContext.SaveChanges();
+        }
+        else
+        {
+            bool hashedValueMatch = Codes.HashingExamples.BCryptVerifyHashing(CprNr, matchedUser.Cpr1 );
+            if (hashedValueMatch)
+            {
+                TodoList = _todoContext.Todolists.ToList();
+                TodoList = TodoList.Where(x => x.User == UserName).ToList();
+            }
+        }
+
+        CprFromDB = _todoContext.Cprs.FirstOrDefault(x => x.User == UserName)?.Cpr1;
+    }
+
+    private void btnSubmitTodoItem_clicked()
+    {
+        HashSet<int> hashSets2 = new HashSet<int>(TodoList.Select(item => item.GetHashCode()));
+
+        var todoListTemp = _todoContext.Todolists.ToList();
+        todoListTemp = todoListTemp.Where(x => x.User == UserName).ToList();
+        HashSet<int> hashSet1 = new HashSet<int>(todoListTemp.Select(item => item.GetHashCode()));
+
+        bool areListsEqual = hashSet1.SetEquals(hashSets2);
+        string itemName = _encryptHandler.Encrypt(ToDoItem);
+        if (areListsEqual)
+        {
+            var todo = new BlazorApp2.Models.Todolist
+                {
+                    User = UserName,
+                    Name = itemName
+                };
+
+            _todoContext.Todolists.Add(todo);
+            _todoContext.SaveChanges();
+
+            TodoList = _todoContext.Todolists.ToList();
+            TodoList = TodoList.Where(x => x.User == UserName).ToList();
+            CprFromDB = _todoContext.Cprs.FirstOrDefault(x => x.User ==UserName)?.Cpr1;
+            Message = null;
+        }
+        else
+        {
+            Message = "Manipulation found on db!";
+        }
+    }
+}
